@@ -1,2 +1,2 @@
-# niuwm
+# NiuWM
 Niu Window Manager
