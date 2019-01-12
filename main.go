@@ -20,6 +20,7 @@ var atom_wm_take_focus xproto.Atom
 */
 var windows []xproto.Window
 var wm_atoms map[string]xproto.Atom
+var cfg niu_cfg
 
 func find_window(w xproto.Window) (ret bool) {
 	ret = false
@@ -34,7 +35,8 @@ func find_window(w xproto.Window) (ret bool) {
 
 //start application with parameters waitfor it to finish
 func start_app(name string, params string) {
-	cmd := exec.Command(name, params)
+	var full string = name + " " + params
+	cmd := exec.Command("/bin/bash", "-c", full)
 	err := cmd.Start()
 	if err != nil {
 		log.Fatal(err)
@@ -85,16 +87,31 @@ func handle_button_press(e xproto.ButtonPressEvent) {
 
 }
 func handle_key_press(e xproto.KeyPressEvent) {
-	keycode := e.Detail
-	if e.State&xproto.ModMaskControl != 0 {
-		if keycode == 36 {
-			go start_app("termite", "")
-		}
-		if keycode == 9 {
-			//close WM TODO proper now i just kill it
-			panic("closing")
+	keycode := byte(e.Detail)
+	mod := e.State /*
+		if e.State&xproto.ModMaskControl != 0 {
+			if keycode == 36 {
+				go start_app("termite", "")
+			}
+			if keycode == 9 {
+				//close WM TODO proper now i just kill it
+				panic("closing")
+			}
+		}*/
+	for _, cmd_ := range cfg.Keybinds.Cmd {
+		if mod == cmd_.Mod && keycode == cmd_.Keycode {
+			go start_app(cmd_.Cmd, cmd_.Cmdparams)
+			return
 		}
 	}
+	for _, actions := range cfg.Keybinds.Actions {
+		if mod == actions.Mod && keycode == actions.Keycode {
+			if actions.Action == "logout" {
+				panic("closing")
+			}
+		}
+	}
+
 }
 
 func map_window(window xproto.Window) {
@@ -188,7 +205,28 @@ func tile_windows() {
 	fmt.Printf("NRO WINDOWS %d \n", len(windows))
 }
 
+func grab_key_events() {
+	for _, cmd_ := range cfg.Keybinds.Cmd {
+		xproto.GrabKey(xconn, true, screen.Root, cmd_.Mod, xproto.Keycode(cmd_.Keycode),
+			xproto.GrabModeAsync, xproto.GrabModeAsync)
+	}
+	for _, action_ := range cfg.Keybinds.Actions {
+		xproto.GrabKey(xconn, true, screen.Root, action_.Mod, xproto.Keycode(action_.Keycode),
+			xproto.GrabModeAsync, xproto.GrabModeAsync)
+	}
+	/*
+		xproto.GrabKey(xconn, true, screen.Root, xproto.ModMaskControl, 36,
+			xproto.GrabModeAsync, xproto.GrabModeAsync)
+		xproto.GrabKey(xconn, true, screen.Root, xproto.ModMaskControl, 9,
+			xproto.GrabModeAsync, xproto.GrabModeAsync)
+	*/
+}
+
 func main() {
+	cfg = init_config()
+	fmt.Println("############")
+	fmt.Println(cfg)
+	fmt.Println("############")
 	var err error
 	xconn, err = xgb.NewConnDisplay(":0")
 	if err != nil {
@@ -223,31 +261,8 @@ func main() {
 			panic(err)
 		}
 	}
-	/*
-		wid, _ := xproto.NewWindowId(xconn)
 
-		xproto.ChangeWindowAttributes(xconn, wid,
-			xproto.CwBackPixel|xproto.CwEventMask,
-			[]uint32{ // values must be in the order defined by the protocol
-				0xffffffff,
-				xproto.EventMaskStructureNotify |
-					xproto.EventMaskKeyPress |
-					xproto.EventMaskKeyRelease})
-
-		xproto.CreateWindow(xconn, screen.RootDepth, wid, screen.Root,
-			30, 30, 500, 500, 150,
-			xproto.WindowClassInputOutput, screen.RootVisual, 0, []uint32{})
-		err = xproto.MapWindowChecked(xconn, wid).Check()
-		if err != nil {
-			fmt.Printf("Checked Error for mapping window %d: %s\n", wid, err)
-		} else {
-			fmt.Printf("Map window %d successful!\n", wid)
-		}
-	*/
-	xproto.GrabKey(xconn, true, screen.Root, xproto.ModMaskControl, 36,
-		xproto.GrabModeAsync, xproto.GrabModeAsync)
-	xproto.GrabKey(xconn, true, screen.Root, xproto.ModMaskControl, 9,
-		xproto.GrabModeAsync, xproto.GrabModeAsync)
+	grab_key_events()
 	//testing launching app
 	go start_app("termite", "")
 	// get existing windows and place them into our window structure

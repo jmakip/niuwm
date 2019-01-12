@@ -1,0 +1,31 @@
+  {
+		"actions": [
+      {
+				"action":  "logout",
+				"mod":     4,
+				"keycode": 9
+			},
+      {
+				"action":  "focus_left",
+				"mod":     4,
+				"keycode": 43
+			},
+      {
+				"action":  "focus_right",
+				"mod":     4,
+				"keycode": 46
+      }
+    ],
+		"cmd" : [
+		{ 
+      "cmd": "termite", 
+      "cmdparams": "", 
+      "mod": 4, 
+      "keycode": 36},
+		{ 
+      "cmd": "rofi", 
+      "cmdparams": "-show drun", 
+      "mod": 4, 
+      "keycode": 40}
+    ]
+	}
