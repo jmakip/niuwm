@@ -49,7 +49,7 @@ func focused_window() xproto.Window {
 		wind = reply.Parent
 	}
 
-	return reply.Focus
+	return wind
 }
 func give_focus(w xproto.Window) {
 	err := xproto.SetInputFocus(xconn, xproto.InputFocusPointerRoot,
