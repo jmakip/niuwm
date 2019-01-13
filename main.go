@@ -18,9 +18,98 @@ var atom_wm_protocols xproto.Atom
 var atom_wm_deletewindow xproto.Atom
 var atom_wm_take_focus xproto.Atom
 */
+var event_timestamp xproto.Timestamp
 var windows []xproto.Window
 var wm_atoms map[string]xproto.Atom
 var cfg niu_cfg
+
+//try to find window that is active
+//TODO there must be some better way to do this
+func focused_window() xproto.Window {
+	reply, err := xproto.GetInputFocus(xconn).Reply()
+	if err != nil {
+		fmt.Printf("could not get active window id\n")
+		return 0
+	}
+	if reply.Focus == screen.Root {
+		return 0
+	}
+	wind := reply.Focus
+	for {
+		reply, _ := xproto.QueryTree(xconn, wind).Reply()
+		if reply == nil {
+			return 0
+		}
+		if wind == reply.Root {
+			break
+		}
+		if reply.Parent == reply.Root {
+			break
+		}
+		wind = reply.Parent
+	}
+
+	return reply.Focus
+}
+func give_focus(w xproto.Window) {
+	err := xproto.SetInputFocus(xconn, xproto.InputFocusPointerRoot,
+		w, event_timestamp).Check()
+	if err != nil {
+		fmt.Printf("could not get active window id\n")
+	}
+
+}
+
+//now just move inside windows slice,
+func move_focus_left() {
+	if len(windows) < 1 {
+		return
+	}
+
+	active := focused_window()
+	if active == 0 {
+		//no focused_window just give it to first
+		if len(windows) > 0 {
+			give_focus(windows[0])
+		}
+		return
+	}
+	for i, window := range windows {
+		if active == window {
+			if i > 0 {
+				give_focus(windows[i-1])
+				return
+			}
+			//rotate to last if we are at start
+			give_focus(windows[len(windows)-1])
+		}
+	}
+	return
+
+}
+
+//now just move inside windows slice, later add containers
+func move_focus_right() {
+	if len(windows) < 1 {
+		return
+	}
+	active := focused_window()
+	if active == 0 {
+		give_focus(windows[len(windows)-1])
+		return
+	}
+	for i, window := range windows {
+		if active == window {
+			if i < len(windows)-1 {
+				give_focus(windows[i+1])
+				return
+			}
+			//rotate to last if we are at start
+			give_focus(windows[0])
+		}
+	}
+	return
+}
 
 func find_window(w xproto.Window) (ret bool) {
 	ret = false
@@ -33,9 +122,10 @@ func find_window(w xproto.Window) (ret bool) {
 	return
 }
 
-//start application with parameters waitfor it to finish
+//Start application with parameters wait for it to finish
 func start_app(name string, params string) {
 	var full string = name + " " + params
+	//TODO read shell env from config
 	cmd := exec.Command("/bin/bash", "-c", full)
 	err := cmd.Start()
 	if err != nil {
@@ -108,6 +198,12 @@ func handle_key_press(e xproto.KeyPressEvent) {
 		if mod == actions.Mod && keycode == actions.Keycode {
 			if actions.Action == "logout" {
 				panic("closing")
+			}
+			if actions.Action == "focus_left" {
+				move_focus_left()
+			}
+			if actions.Action == "focus_right" {
+				move_focus_right()
 			}
 		}
 	}
@@ -207,11 +303,13 @@ func tile_windows() {
 
 func grab_key_events() {
 	for _, cmd_ := range cfg.Keybinds.Cmd {
-		xproto.GrabKey(xconn, true, screen.Root, cmd_.Mod, xproto.Keycode(cmd_.Keycode),
+		xproto.GrabKey(xconn, true, screen.Root, cmd_.Mod,
+			xproto.Keycode(cmd_.Keycode),
 			xproto.GrabModeAsync, xproto.GrabModeAsync)
 	}
 	for _, action_ := range cfg.Keybinds.Actions {
-		xproto.GrabKey(xconn, true, screen.Root, action_.Mod, xproto.Keycode(action_.Keycode),
+		xproto.GrabKey(xconn, true, screen.Root, action_.Mod,
+			xproto.Keycode(action_.Keycode),
 			xproto.GrabModeAsync, xproto.GrabModeAsync)
 	}
 	/*
