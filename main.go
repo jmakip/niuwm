@@ -23,6 +23,96 @@ var windows []xproto.Window
 var wm_atoms map[string]xproto.Atom
 var cfg niu_cfg
 
+var curr_mode uint16
+var curr_ws workspace
+
+type area struct {
+	x      uint32
+	y      uint32
+	size_x uint32
+	size_y uint32
+}
+
+type workspace struct {
+	name    string
+	bounds  area
+	storage []container
+}
+
+type container struct {
+	mode     uint16
+	bounds   area
+	windows  []xproto.Window
+	sub_area *container
+}
+
+func add_window(window xproto.Window) {
+	curr_focus := focused_window()
+	if curr_focus == 0 {
+		if len(curr_ws.storage) == 0 {
+			cont := container{
+				mode:     curr_mode,
+				bounds:   curr_ws.bounds,
+				windows:  []xproto.Window{window},
+				sub_area: nil}
+
+			curr_ws.storage = []container{cont}
+			return
+		}
+		curr_focus = curr_ws.storage[0].windows[0]
+
+	}
+	var curr_cont *container
+	//find container
+	for _, cont := range curr_ws.storage {
+		for _, wind := range cont.windows {
+			if wind == curr_focus {
+				curr_cont = &cont
+			}
+		}
+	}
+
+	if curr_cont == nil {
+		curr_cont = &curr_ws.storage[0]
+	}
+	if curr_mode == curr_cont.mode {
+		curr_cont.windows = append(curr_cont.windows, window)
+		return
+	}
+	var c_bounds area
+	var n_bounds area
+	if curr_mode == 0 {
+		c_bounds = area{x: curr_cont.bounds.x,
+			y:      curr_cont.bounds.y,
+			size_x: curr_cont.bounds.size_x,
+			size_y: curr_cont.bounds.size_y / 2}
+		n_bounds = area{
+			x:      c_bounds.x,
+			y:      c_bounds.y + c_bounds.size_y,
+			size_x: c_bounds.size_x,
+			size_y: c_bounds.size_y}
+	}
+	if curr_mode == 1 {
+		c_bounds = area{x: curr_cont.bounds.x,
+			y:      curr_cont.bounds.y,
+			size_x: curr_cont.bounds.size_x / 2,
+			size_y: curr_cont.bounds.size_y}
+		n_bounds = area{
+			x:      c_bounds.x + c_bounds.size_x,
+			y:      c_bounds.y,
+			size_x: c_bounds.size_x,
+			size_y: c_bounds.size_y}
+	}
+	curr_cont.bounds = c_bounds
+	box := container{mode: curr_mode,
+		bounds:   n_bounds,
+		windows:  []xproto.Window{window},
+		sub_area: nil}
+	curr_ws.storage = append(curr_ws.storage, box)
+	curr_cont.sub_area = &box
+
+}
+
 //try to find window that is active
 //TODO there must be some better way to do this
 func focused_window() xproto.Window {
