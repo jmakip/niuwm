@@ -36,7 +36,7 @@ type area struct {
 type workspace struct {
 	name    string
 	bounds  area
-	storage []container
+	storage *container
 }
 
 type container struct {
@@ -46,34 +46,94 @@ type container struct {
 	sub_area *container
 }
 
+func tile_containers(cont *container) {
+	if cont == nil {
+		return
+	}
+	if len(cont.windows) != 0 {
+		tile_container(cont)
+	}
+	if cont.sub_area != nil {
+		tile_containers(cont.sub_area)
+	}
+}
+
+func tile_container(cont *container) {
+	var pad uint32 = 10
+	var screen_x uint32 = cont.bounds.size_x
+	var screen_y uint32 = cont.bounds.size_y
+	var nro_windows uint32 = uint32(len(cont.windows))
+	var tile_size_x uint32
+	var tile_size_y uint32
+	var x_off uint32
+	var y_off uint32
+	if nro_windows == 0 {
+		return
+	}
+	if cont.mode == 1 {
+		tile_size_y = screen_y - pad*2
+		tile_size_x = (screen_x / (nro_windows)) - pad*2
+		x_off = pad + tile_size_x + pad
+		y_off = 0
+	}
+	if cont.mode == 0 {
+		tile_size_y = (screen_y / (nro_windows)) - pad*2
+		tile_size_x = screen_x - pad*2
+		x_off = 0
+		y_off = pad + tile_size_y + pad
+	}
+	for index, wind := range cont.windows {
+		var idx uint32 = uint32(index)
+
+		x := pad + (x_off)*uint32(idx) + cont.bounds.x
+		y := pad + (y_off)*uint32(idx) + cont.bounds.y
+		err := xproto.ConfigureWindowChecked(xconn, wind, xproto.ConfigWindowX|
+			xproto.ConfigWindowY|
+			xproto.ConfigWindowWidth|
+			xproto.ConfigWindowHeight,
+			[]uint32{x, y, tile_size_x, tile_size_y}).Check()
+		if err != nil {
+			fmt.Println(err)
+		}
+	}
+}
 func add_window(window xproto.Window) {
 	curr_focus := focused_window()
+	if curr_ws.storage == nil {
+		cont := container{
+			mode:     curr_mode,
+			bounds:   curr_ws.bounds,
+			windows:  []xproto.Window{window},
+			sub_area: nil}
+
+		curr_ws.storage = &cont //container{cont}
+		return
+	}
+
 	if curr_focus == 0 {
-		if len(curr_ws.storage) == 0 {
-			cont := container{
-				mode:     curr_mode,
-				bounds:   curr_ws.bounds,
-				windows:  []xproto.Window{window},
-				sub_area: nil}
-
-			curr_ws.storage = []container{cont}
-			return
+		if curr_ws.storage != nil && len(curr_ws.storage.windows) != 0 {
+			curr_focus = curr_ws.storage.windows[0]
 		}
-		curr_focus = curr_ws.storage[0].windows[0]
-
 	}
 	var curr_cont *container
 	//find container
-	for _, cont := range curr_ws.storage {
-		for _, wind := range cont.windows {
-			if wind == curr_focus {
-				curr_cont = &cont
+	/*
+			for cont := curr_ws.storage; cont != nil; cont = cont.sub_area {
+				for _, wind := range cont.windows {
+					if wind == curr_focus {
+						curr_cont = cont
+						goto end_loop
+					}
+				}
 			}
-		}
+		end_loop:
+	*/
+	curr_cont = curr_ws.storage
+	for curr_cont.sub_area != nil {
+		curr_cont = curr_cont.sub_area
 	}
-
 	if curr_cont == nil {
-		curr_cont = &curr_ws.storage[0]
+		curr_cont = curr_ws.storage
 	}
 	if curr_mode == curr_cont.mode {
 		curr_cont.windows = append(curr_cont.windows, window)
@@ -108,7 +168,7 @@ func add_window(window xproto.Window) {
 		bounds:   n_bounds,
 		windows:  []xproto.Window{window},
 		sub_area: nil}
-	curr_ws.storage = append(curr_ws.storage, box)
+	//curr_ws.storage = append(curr_ws.storage, box)
 	curr_cont.sub_area = &box
 
 }
@@ -295,6 +355,9 @@ func handle_key_press(e xproto.KeyPressEvent) {
 			if actions.Action == "focus_right" {
 				move_focus_right()
 			}
+			if actions.Action == "tiling_mode_toggle" {
+				curr_mode = curr_mode ^ 1
+			}
 		}
 	}
 
@@ -322,15 +385,14 @@ func map_window(window xproto.Window) {
 		xproto.CwEventMask,
 		[]uint32{
 			xproto.EventMaskStructureNotify |
-				xproto.EventMaskEnterWindow,
-		}).Check(); err != nil {
+				xproto.EventMaskEnterWindow}).Check(); err != nil {
+
 		return
 	}
 	if window != screen.Root {
-		windows = append(windows, window)
+		//windows = append(windows, window)
+		add_window(window)
 	}
-	fmt.Printf("Windows: ")
-	fmt.Println(windows)
 }
 func unmap_window(window xproto.Window) {
 	//todo remove window from slicea
@@ -379,10 +441,11 @@ func tile_windows() {
 		var idx uint32 = uint32(index)
 
 		x := pad + (pad+tile_size_x+pad)*uint32(idx)
-		err := xproto.ConfigureWindowChecked(xconn, wind, xproto.ConfigWindowX|
-			xproto.ConfigWindowY|
-			xproto.ConfigWindowWidth|
-			xproto.ConfigWindowHeight,
+		err := xproto.ConfigureWindowChecked(xconn, wind,
+			xproto.ConfigWindowX|
+				xproto.ConfigWindowY|
+				xproto.ConfigWindowWidth|
+				xproto.ConfigWindowHeight,
 			[]uint32{x, 0, tile_size_x, screen_y}).Check()
 		if err != nil {
 			fmt.Println(err)
@@ -411,6 +474,7 @@ func grab_key_events() {
 }
 
 func main() {
+	curr_mode = 1
 	cfg = init_config()
 	fmt.Println("############")
 	fmt.Println(cfg)
@@ -424,7 +488,11 @@ func main() {
 
 	setup = xproto.Setup(xconn)
 	screen = setup.DefaultScreen(xconn)
-
+	curr_ws.bounds = area{
+		x:      0,
+		y:      0,
+		size_x: uint32(screen.WidthInPixels),
+		size_y: uint32(screen.HeightInPixels)}
 	fmt.Printf("setup info vendor %s \n", setup.Vendor)
 
 	fmt.Printf("screen height Width %d %d", screen.HeightInPixels,
@@ -455,7 +523,8 @@ func main() {
 	go start_app("termite", "")
 	// get existing windows and place them into our window structure
 	query_windows()
-	tile_windows()
+	//tile_windows()
+	tile_containers(curr_ws.storage)
 	for {
 		// WaitForEvent either returns an event or an error and never both.
 		// If both are nil, then something went wrong and the loop should be
@@ -485,7 +554,8 @@ func main() {
 			if winattrib, err := xproto.GetWindowAttributes(xconn, e.Window).Reply(); err != nil || !winattrib.OverrideRedirect {
 				xproto.MapWindowChecked(xconn, e.Window)
 				map_window(e.Window)
-				tile_windows()
+				//tile_windows()
+				tile_containers(curr_ws.storage)
 			}
 		case xproto.ConfigureRequestEvent:
 			fmt.Println("ConfigureRequestEvent")
@@ -510,7 +580,8 @@ func main() {
 		case xproto.DestroyNotifyEvent:
 			unmap_window(e.Window)
 			//query_windows()
-			tile_windows()
+			//tile_windows()
+			tile_containers(curr_ws.storage)
 		default:
 		}
 
