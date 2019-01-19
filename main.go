@@ -36,29 +36,29 @@ type area struct {
 type workspace struct {
 	name    string
 	bounds  area
-	storage *container
+	storage *Container
 }
 
-type container struct {
+type Container struct {
 	mode     uint16
 	bounds   area
 	windows  []xproto.Window
-	sub_area *container
+	sub_area *Container
 }
 
-func tile_containers(cont *container) {
+func TileContainers(cont *Container) {
 	if cont == nil {
 		return
 	}
 	if len(cont.windows) != 0 {
-		tile_container(cont)
+		TileContainer(cont)
 	}
 	if cont.sub_area != nil {
-		tile_containers(cont.sub_area)
+		TileContainers(cont.sub_area)
 	}
 }
 
-func tile_container(cont *container) {
+func TileContainer(cont *Container) {
 	var pad uint32 = 10
 	var screen_x uint32 = cont.bounds.size_x
 	var screen_y uint32 = cont.bounds.size_y
@@ -97,16 +97,66 @@ func tile_container(cont *container) {
 		}
 	}
 }
-func add_window(window xproto.Window) {
+func RemoveWindow(wind xproto.Window) {
+	var pcont *Container
+	var ccont *Container
+	var nw []xproto.Window
+	//find container
+	for cont := curr_ws.storage; cont != nil; cont = cont.sub_area {
+		for _, w := range cont.windows {
+			if w == wind {
+				ccont = cont
+				goto end_loop
+			}
+		}
+		pcont = cont
+	}
+end_loop:
+	if len(ccont.windows) > 1 {
+		for _, w := range ccont.windows {
+			if w != wind {
+				nw = append(nw, w)
+			}
+		}
+		ccont.windows = nw
+		return
+	}
+	//remove container
+	if pcont == nil {
+		curr_ws.storage = ccont.sub_area
+		if ccont.sub_area != nil {
+			ccont.sub_area.bounds.size_x += ccont.bounds.size_x
+			ccont.sub_area.bounds.size_y += ccont.bounds.size_y
+			ccont.sub_area.bounds.x = ccont.bounds.x
+			ccont.sub_area.bounds.y = ccont.bounds.y
+		}
+		return
+	}
+	if ccont.sub_area == nil {
+		pcont.sub_area = nil
+		pcont.bounds.size_x += ccont.bounds.size_x
+		pcont.bounds.size_y += ccont.bounds.size_y
+		return
+	}
+	//hardest case
+	//if parent has decreased size its best to realloc bounds size
+	//TODO i just now give it to parent but once i have splits on mid of list
+	//need to implement checks
+	pcont.sub_area = ccont.sub_area
+	pcont.bounds.size_x += ccont.bounds.size_x
+	pcont.bounds.size_y += ccont.bounds.size_y
+
+}
+func AddWindow(window xproto.Window) {
 	curr_focus := focused_window()
 	if curr_ws.storage == nil {
-		cont := container{
+		cont := Container{
 			mode:     curr_mode,
 			bounds:   curr_ws.bounds,
 			windows:  []xproto.Window{window},
 			sub_area: nil}
 
-		curr_ws.storage = &cont //container{cont}
+		curr_ws.storage = &cont //Container{cont}
 		return
 	}
 
@@ -115,37 +165,37 @@ func add_window(window xproto.Window) {
 			curr_focus = curr_ws.storage.windows[0]
 		}
 	}
-	var curr_cont *container
-	//find container
+	var ccont *Container
+	//find Container
 	/*
 			for cont := curr_ws.storage; cont != nil; cont = cont.sub_area {
 				for _, wind := range cont.windows {
 					if wind == curr_focus {
-						curr_cont = cont
+						ccont = cont
 						goto end_loop
 					}
 				}
 			}
 		end_loop:
 	*/
-	curr_cont = curr_ws.storage
-	for curr_cont.sub_area != nil {
-		curr_cont = curr_cont.sub_area
+	ccont = curr_ws.storage
+	for ccont.sub_area != nil {
+		ccont = ccont.sub_area
 	}
-	if curr_cont == nil {
-		curr_cont = curr_ws.storage
+	if ccont == nil {
+		ccont = curr_ws.storage
 	}
-	if curr_mode == curr_cont.mode {
-		curr_cont.windows = append(curr_cont.windows, window)
+	if curr_mode == ccont.mode {
+		ccont.windows = append(ccont.windows, window)
 		return
 	}
 	var c_bounds area
 	var n_bounds area
 	if curr_mode == 0 {
-		c_bounds = area{x: curr_cont.bounds.x,
-			y:      curr_cont.bounds.y,
-			size_x: curr_cont.bounds.size_x,
-			size_y: curr_cont.bounds.size_y / 2}
+		c_bounds = area{x: ccont.bounds.x,
+			y:      ccont.bounds.y,
+			size_x: ccont.bounds.size_x,
+			size_y: ccont.bounds.size_y / 2}
 		n_bounds = area{
 			x:      c_bounds.x,
 			y:      c_bounds.y + c_bounds.size_y,
@@ -153,23 +203,23 @@ func add_window(window xproto.Window) {
 			size_y: c_bounds.size_y}
 	}
 	if curr_mode == 1 {
-		c_bounds = area{x: curr_cont.bounds.x,
-			y:      curr_cont.bounds.y,
-			size_x: curr_cont.bounds.size_x / 2,
-			size_y: curr_cont.bounds.size_y}
+		c_bounds = area{x: ccont.bounds.x,
+			y:      ccont.bounds.y,
+			size_x: ccont.bounds.size_x / 2,
+			size_y: ccont.bounds.size_y}
 		n_bounds = area{
 			x:      c_bounds.x + c_bounds.size_x,
 			y:      c_bounds.y,
 			size_x: c_bounds.size_x,
 			size_y: c_bounds.size_y}
 	}
-	curr_cont.bounds = c_bounds
-	box := container{mode: curr_mode,
+	ccont.bounds = c_bounds
+	box := Container{mode: curr_mode,
 		bounds:   n_bounds,
 		windows:  []xproto.Window{window},
 		sub_area: nil}
 	//curr_ws.storage = append(curr_ws.storage, box)
-	curr_cont.sub_area = &box
+	ccont.sub_area = &box
 
 }
 
@@ -238,7 +288,7 @@ func move_focus_left() {
 
 }
 
-//now just move inside windows slice, later add containers
+//now just move inside windows slice, later add Containers
 func move_focus_right() {
 	if len(windows) < 1 {
 		return
@@ -391,7 +441,7 @@ func map_window(window xproto.Window) {
 	}
 	if window != screen.Root {
 		//windows = append(windows, window)
-		add_window(window)
+		AddWindow(window)
 	}
 }
 func unmap_window(window xproto.Window) {
@@ -403,8 +453,7 @@ func unmap_window(window xproto.Window) {
 		}
 	}
 	windows = nw
-	fmt.Printf("Windows: ")
-	fmt.Println(windows)
+	RemoveWindow(window)
 }
 
 func query_windows() {
@@ -524,7 +573,7 @@ func main() {
 	// get existing windows and place them into our window structure
 	query_windows()
 	//tile_windows()
-	tile_containers(curr_ws.storage)
+	TileContainers(curr_ws.storage)
 	for {
 		// WaitForEvent either returns an event or an error and never both.
 		// If both are nil, then something went wrong and the loop should be
@@ -555,7 +604,7 @@ func main() {
 				xproto.MapWindowChecked(xconn, e.Window)
 				map_window(e.Window)
 				//tile_windows()
-				tile_containers(curr_ws.storage)
+				TileContainers(curr_ws.storage)
 			}
 		case xproto.ConfigureRequestEvent:
 			fmt.Println("ConfigureRequestEvent")
@@ -581,7 +630,7 @@ func main() {
 			unmap_window(e.Window)
 			//query_windows()
 			//tile_windows()
-			tile_containers(curr_ws.storage)
+			TileContainers(curr_ws.storage)
 		default:
 		}
 
