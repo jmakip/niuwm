@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"niuwm/tiling"
 	"os/exec"
 
 	"github.com/BurntSushi/xgb"
@@ -23,204 +24,18 @@ var windows []xproto.Window
 var wm_atoms map[string]xproto.Atom
 var cfg niu_cfg
 
-var curr_mode uint16
-var curr_ws workspace
+var curTileMode tiling.TileMode
+var curWs tiling.Workspace
 
-type area struct {
-	x      uint32
-	y      uint32
-	size_x uint32
-	size_y uint32
-}
-
-type workspace struct {
-	name    string
-	bounds  area
-	storage *Container
-}
-
-type Container struct {
-	mode     uint16
-	bounds   area
-	windows  []xproto.Window
-	sub_area *Container
-}
-
-func TileContainers(cont *Container) {
-	if cont == nil {
-		return
-	}
-	if len(cont.windows) != 0 {
-		TileContainer(cont)
-	}
-	if cont.sub_area != nil {
-		TileContainers(cont.sub_area)
-	}
-}
-
-func TileContainer(cont *Container) {
-	var pad uint32 = 10
-	var screen_x uint32 = cont.bounds.size_x
-	var screen_y uint32 = cont.bounds.size_y
-	var nro_windows uint32 = uint32(len(cont.windows))
-	var tile_size_x uint32
-	var tile_size_y uint32
-	var x_off uint32
-	var y_off uint32
-	if nro_windows == 0 {
-		return
-	}
-	if cont.mode == 1 {
-		tile_size_y = screen_y - pad*2
-		tile_size_x = (screen_x / (nro_windows)) - pad*2
-		x_off = pad + tile_size_x + pad
-		y_off = 0
-	}
-	if cont.mode == 0 {
-		tile_size_y = (screen_y / (nro_windows)) - pad*2
-		tile_size_x = screen_x - pad*2
-		x_off = 0
-		y_off = pad + tile_size_y + pad
-	}
-	for index, wind := range cont.windows {
-		var idx uint32 = uint32(index)
-
-		x := pad + (x_off)*uint32(idx) + cont.bounds.x
-		y := pad + (y_off)*uint32(idx) + cont.bounds.y
-		err := xproto.ConfigureWindowChecked(xconn, wind, xproto.ConfigWindowX|
-			xproto.ConfigWindowY|
-			xproto.ConfigWindowWidth|
-			xproto.ConfigWindowHeight,
-			[]uint32{x, y, tile_size_x, tile_size_y}).Check()
-		if err != nil {
-			fmt.Println(err)
-		}
-	}
-}
 func RemoveWindow(wind xproto.Window) {
-	var pcont *Container
-	var ccont *Container
-	var nw []xproto.Window
-	//find container
-	for cont := curr_ws.storage; cont != nil; cont = cont.sub_area {
-		for _, w := range cont.windows {
-			if w == wind {
-				ccont = cont
-				goto end_loop
-			}
-		}
-		pcont = cont
-	}
-end_loop:
-	if len(ccont.windows) > 1 {
-		for _, w := range ccont.windows {
-			if w != wind {
-				nw = append(nw, w)
-			}
-		}
-		ccont.windows = nw
-		return
-	}
-	//remove container
-	if pcont == nil {
-		curr_ws.storage = ccont.sub_area
-		if ccont.sub_area != nil {
-			ccont.sub_area.bounds.size_x += ccont.bounds.size_x
-			ccont.sub_area.bounds.size_y += ccont.bounds.size_y
-			ccont.sub_area.bounds.x = ccont.bounds.x
-			ccont.sub_area.bounds.y = ccont.bounds.y
-		}
-		return
-	}
-	if ccont.sub_area == nil {
-		pcont.sub_area = nil
-		pcont.bounds.size_x += ccont.bounds.size_x
-		pcont.bounds.size_y += ccont.bounds.size_y
-		return
-	}
-	//hardest case
-	//if parent has decreased size its best to realloc bounds size
-	//TODO i just now give it to parent but once i have splits on mid of list
-	//need to implement checks
-	pcont.sub_area = ccont.sub_area
-	pcont.bounds.size_x += ccont.bounds.size_x
-	pcont.bounds.size_y += ccont.bounds.size_y
-
+	curWs.Root.Delete(wind)
 }
 func AddWindow(window xproto.Window) {
-	curr_focus := focused_window()
-	if curr_ws.storage == nil {
-		cont := Container{
-			mode:     curr_mode,
-			bounds:   curr_ws.bounds,
-			windows:  []xproto.Window{window},
-			sub_area: nil}
-
-		curr_ws.storage = &cont //Container{cont}
-		return
+	focus := focused_window()
+	if curWs.Root.HasBranch() == false {
+		curWs.Bounds = tiling.Area{X: 0, Y: 0, Width: uint32(screen.WidthInPixels), Height: uint32(screen.HeightInPixels)}
 	}
-
-	if curr_focus == 0 {
-		if curr_ws.storage != nil && len(curr_ws.storage.windows) != 0 {
-			curr_focus = curr_ws.storage.windows[0]
-		}
-	}
-	var ccont *Container
-	//find Container
-	/*
-			for cont := curr_ws.storage; cont != nil; cont = cont.sub_area {
-				for _, wind := range cont.windows {
-					if wind == curr_focus {
-						ccont = cont
-						goto end_loop
-					}
-				}
-			}
-		end_loop:
-	*/
-	ccont = curr_ws.storage
-	for ccont.sub_area != nil {
-		ccont = ccont.sub_area
-	}
-	if ccont == nil {
-		ccont = curr_ws.storage
-	}
-	if curr_mode == ccont.mode {
-		ccont.windows = append(ccont.windows, window)
-		return
-	}
-	var c_bounds area
-	var n_bounds area
-	if curr_mode == 0 {
-		c_bounds = area{x: ccont.bounds.x,
-			y:      ccont.bounds.y,
-			size_x: ccont.bounds.size_x,
-			size_y: ccont.bounds.size_y / 2}
-		n_bounds = area{
-			x:      c_bounds.x,
-			y:      c_bounds.y + c_bounds.size_y,
-			size_x: c_bounds.size_x,
-			size_y: c_bounds.size_y}
-	}
-	if curr_mode == 1 {
-		c_bounds = area{x: ccont.bounds.x,
-			y:      ccont.bounds.y,
-			size_x: ccont.bounds.size_x / 2,
-			size_y: ccont.bounds.size_y}
-		n_bounds = area{
-			x:      c_bounds.x + c_bounds.size_x,
-			y:      c_bounds.y,
-			size_x: c_bounds.size_x,
-			size_y: c_bounds.size_y}
-	}
-	ccont.bounds = c_bounds
-	box := Container{mode: curr_mode,
-		bounds:   n_bounds,
-		windows:  []xproto.Window{window},
-		sub_area: nil}
-	//curr_ws.storage = append(curr_ws.storage, box)
-	ccont.sub_area = &box
-
+	curWs.Root.Insert(curTileMode, focus, window)
 }
 
 //try to find window that is active
@@ -406,7 +221,12 @@ func handle_key_press(e xproto.KeyPressEvent) {
 				move_focus_right()
 			}
 			if actions.Action == "tiling_mode_toggle" {
-				curr_mode = curr_mode ^ 1
+				if curTileMode == tiling.TileHori {
+					curTileMode = tiling.TileVert
+				} else {
+					curTileMode = tiling.TileHori
+				}
+
 			}
 		}
 	}
@@ -523,7 +343,7 @@ func grab_key_events() {
 }
 
 func main() {
-	curr_mode = 1
+	curTileMode = tiling.TileHori
 	cfg = init_config()
 	fmt.Println("############")
 	fmt.Println(cfg)
@@ -537,11 +357,12 @@ func main() {
 
 	setup = xproto.Setup(xconn)
 	screen = setup.DefaultScreen(xconn)
-	curr_ws.bounds = area{
-		x:      0,
-		y:      0,
-		size_x: uint32(screen.WidthInPixels),
-		size_y: uint32(screen.HeightInPixels)}
+	curWs.Bounds = tiling.Area{
+		X:      0,
+		Y:      0,
+		Width:  uint32(screen.WidthInPixels),
+		Height: uint32(screen.HeightInPixels)}
+	curWs.Root = &tiling.Tile{curTileMode, curWs.Bounds, 0, nil, nil} //give 0 or screen.Root?
 	fmt.Printf("setup info vendor %s \n", setup.Vendor)
 
 	fmt.Printf("screen height Width %d %d", screen.HeightInPixels,
@@ -573,7 +394,7 @@ func main() {
 	// get existing windows and place them into our window structure
 	query_windows()
 	//tile_windows()
-	TileContainers(curr_ws.storage)
+	curWs.Root.Config(xconn, 5, 5)
 	for {
 		// WaitForEvent either returns an event or an error and never both.
 		// If both are nil, then something went wrong and the loop should be
@@ -604,7 +425,7 @@ func main() {
 				xproto.MapWindowChecked(xconn, e.Window)
 				map_window(e.Window)
 				//tile_windows()
-				TileContainers(curr_ws.storage)
+				curWs.Root.Config(xconn, 5, 5)
 			}
 		case xproto.ConfigureRequestEvent:
 			fmt.Println("ConfigureRequestEvent")
@@ -630,7 +451,7 @@ func main() {
 			unmap_window(e.Window)
 			//query_windows()
 			//tile_windows()
-			TileContainers(curr_ws.storage)
+			curWs.Root.Config(xconn, 5, 5)
 		default:
 		}
 
