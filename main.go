@@ -26,21 +26,57 @@ var cfg niu_cfg
 
 var curTileMode tiling.TileMode
 var curWs tiling.Workspace
+var currFocus xproto.Window
 
 func RemoveWindow(wind xproto.Window) {
-	curWs.Root.Delete(wind)
+	curWs.Delete(wind)
 }
 func AddWindow(window xproto.Window) {
-	focus := focused_window()
+	//focus := focused_window()
 	if curWs.Root.HasBranch() == false {
 		curWs.Bounds = tiling.Area{X: 0, Y: 0, Width: uint32(screen.WidthInPixels), Height: uint32(screen.HeightInPixels)}
 	}
-	curWs.Root.Insert(curTileMode, focus, window)
+	curWs.Insert(curTileMode, currFocus, window)
+}
+
+func getActiveWindow() xproto.Window {
+	atomname := "_NET_ACTIVE_WINDOW"
+
+	fmt.Printf("%s\n", atomname)
+	cookie := xproto.InternAtom(xconn, false, uint16(len(atomname)), atomname)
+	reply, err := cookie.Reply()
+	if err == nil {
+		fmt.Printf("GOT COOKIE: \n")
+		preply, err := xproto.GetPropertyUnchecked(xconn, false, screen.Root, reply.Atom, xproto.GetPropertyTypeAny, 0, 1).Reply()
+		if err == nil {
+			fmt.Printf("GOT reply: \n")
+			if preply.ValueLen == 0 {
+				fmt.Printf("GOT reply length zero: \n")
+				return 0
+			}
+			if preply.Type != xproto.AtomWindow {
+				fmt.Printf("GOT type != atomwindow: \n")
+				return 0
+			}
+			var wind xproto.Window
+			wind = xproto.Window(uint32(preply.Value[0]) +
+				uint32(preply.Value[1])<<8 +
+				uint32(preply.Value[2])<<16 +
+				uint32(preply.Value[3])<<24)
+
+			fmt.Printf("GOT ACTIVE WINDOW: %d\n", wind)
+			return wind
+
+		}
+	}
+	return 0
 }
 
 //try to find window that is active
 //TODO there must be some better way to do this
 func focused_window() xproto.Window {
+	xproto.GrabServer(xconn)
+	defer xproto.UngrabServer(xconn)
 	reply, err := xproto.GetInputFocus(xconn).Reply()
 	if err != nil {
 		fmt.Printf("could not get active window id\n")
@@ -67,63 +103,78 @@ func focused_window() xproto.Window {
 	return wind
 }
 func give_focus(w xproto.Window) {
+	if w == 0 {
+		return
+	}
 	err := xproto.SetInputFocus(xconn, xproto.InputFocusPointerRoot,
 		w, event_timestamp).Check()
 	if err != nil {
-		fmt.Printf("could not get active window id\n")
+		fmt.Printf("could not set input focus\n")
 	}
 
 }
 
 //now just move inside windows slice,
 func move_focus_left() {
-	if len(windows) < 1 {
-		return
-	}
-
 	active := focused_window()
+
 	if active == 0 {
 		//no focused_window just give it to first
-		if len(windows) > 0 {
-			give_focus(windows[0])
+		if curWs.Root.Right != nil {
+			give_focus(curWs.Root.Right.Wind)
+			return
+		}
+		if curWs.Root.Left != nil {
+			give_focus(curWs.Root.Left.Wind)
+			return
 		}
 		return
 	}
-	for i, window := range windows {
-		if active == window {
-			if i > 0 {
-				give_focus(windows[i-1])
-				return
-			}
-			//rotate to last if we are at start
-			give_focus(windows[len(windows)-1])
+	tile, _ := curWs.Root.FindWithParent(active)
+	if tile != nil {
+		if tile.Left != nil {
+			give_focus(tile.Left.Wind)
+			currFocus = active
+			return
 		}
 	}
-	return
+	if curWs.Root.Right != nil {
+		give_focus(curWs.Root.Right.Wind)
+		currFocus = active
+		return
+	}
 
 }
 
 //now just move inside windows slice, later add Containers
 func move_focus_right() {
-	if len(windows) < 1 {
-		return
-	}
 	active := focused_window()
+
 	if active == 0 {
-		give_focus(windows[len(windows)-1])
+		//no focused_window just give it to first
+		if curWs.Root.Right != nil {
+			give_focus(curWs.Root.Right.Wind)
+			return
+		}
+		if curWs.Root.Left != nil {
+			give_focus(curWs.Root.Left.Wind)
+			return
+		}
 		return
 	}
-	for i, window := range windows {
-		if active == window {
-			if i < len(windows)-1 {
-				give_focus(windows[i+1])
-				return
-			}
-			//rotate to last if we are at start
-			give_focus(windows[0])
+	tile, _ := curWs.Root.FindWithParent(active)
+	if tile != nil {
+		if tile.Right != nil {
+			give_focus(tile.Right.Wind)
+			currFocus = active
+			return
 		}
 	}
-	return
+	if curWs.Root.Right != nil {
+		give_focus(curWs.Root.Right.Wind)
+		currFocus = active
+		return
+	}
 }
 
 func find_window(w xproto.Window) (ret bool) {
@@ -205,6 +256,7 @@ func handle_key_press(e xproto.KeyPressEvent) {
 		}*/
 	for _, cmd_ := range cfg.Keybinds.Cmd {
 		if mod == cmd_.Mod && keycode == cmd_.Keycode {
+			currFocus = focused_window()
 			go start_app(cmd_.Cmd, cmd_.Cmdparams)
 			return
 		}
@@ -265,14 +317,6 @@ func map_window(window xproto.Window) {
 	}
 }
 func unmap_window(window xproto.Window) {
-	//todo remove window from slicea
-	var nw []xproto.Window
-	for _, w := range windows {
-		if w != window {
-			nw = append(nw, w)
-		}
-	}
-	windows = nw
 	RemoveWindow(window)
 }
 
@@ -379,7 +423,9 @@ func main() {
 				xproto.EventMaskButtonPress |
 				xproto.EventMaskButtonRelease |
 				xproto.EventMaskStructureNotify |
-				xproto.EventMaskSubstructureRedirect,
+				xproto.EventMaskSubstructureRedirect |
+				xproto.EventMaskEnterWindow |
+				xproto.EventMaskLeaveWindow,
 		}).Check()
 	if err != nil {
 		if _, ok := err.(xproto.AccessError); ok {
@@ -394,7 +440,7 @@ func main() {
 	// get existing windows and place them into our window structure
 	query_windows()
 	//tile_windows()
-	curWs.Root.Config(xconn, 5, 5)
+	curWs.Config(xconn, 10, 10)
 	for {
 		// WaitForEvent either returns an event or an error and never both.
 		// If both are nil, then something went wrong and the loop should be
@@ -425,7 +471,7 @@ func main() {
 				xproto.MapWindowChecked(xconn, e.Window)
 				map_window(e.Window)
 				//tile_windows()
-				curWs.Root.Config(xconn, 5, 5)
+				curWs.Config(xconn, 10, 10)
 			}
 		case xproto.ConfigureRequestEvent:
 			fmt.Println("ConfigureRequestEvent")
@@ -451,7 +497,13 @@ func main() {
 			unmap_window(e.Window)
 			//query_windows()
 			//tile_windows()
-			curWs.Root.Config(xconn, 5, 5)
+			curWs.Config(xconn, 10, 10)
+		case xproto.EnterNotifyEvent:
+			if e.Event != screen.Root {
+				currFocus = e.Event
+				give_focus(e.Event)
+			}
+
 		default:
 		}
 

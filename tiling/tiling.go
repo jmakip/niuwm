@@ -44,6 +44,41 @@ type Tile struct {
 	Left   *Tile
 }
 
+//Insert boilerplate code for tile
+func (ws *Workspace) Insert(m TileMode, focus xproto.Window, w xproto.Window) {
+	if ws == nil {
+		return
+	}
+	if ws.Root.HasBranch() == false {
+		ws.Root.Right = &Tile{m, ws.Root.Bounds, w, nil, nil}
+		return
+	}
+	ws.Root.Right.Insert(m, focus, w)
+	ws.Root.Right.reallocBounds(ws.Bounds)
+}
+func (ws *Workspace) Delete(w xproto.Window) {
+	if ws == nil {
+		return
+	}
+	if ws.Root.HasBranch() == false {
+		return
+	}
+	ws.Root.Delete(w)
+	if ws.Root.Right != nil {
+		ws.Root.Right.reallocBounds(ws.Bounds)
+	}
+}
+
+func (ws *Workspace) Config(xConn *xgb.Conn, padX uint32, padY uint32) {
+	if ws == nil {
+		return
+	}
+	if ws.Root.HasBranch() == false {
+		return
+	}
+	ws.Root.Config(xConn, padX, padY)
+}
+
 //returns status
 func (t *Tile) HasBranch() bool {
 	if t.Right == nil && t.Left == nil {
@@ -101,6 +136,8 @@ func (t *Tile) insertNoFocus(m TileMode, w xproto.Window) {
 		ntile.Left = t.Left
 		t.Left = &ntile
 
+	} else if t.Right != nil && t.Left == nil {
+		t.Left = &ntile
 	} else {
 		ntile.Right = t.Right
 		ntile.Left = t.Left
@@ -138,7 +175,8 @@ func (t *Tile) Find(w xproto.Window) (rt *Tile) {
 		return nil
 	}
 	if w == t.Wind {
-		return t
+		rt = t
+		return rt
 	}
 	rt = t.Right.Find(w)
 	if rt != nil {
@@ -271,49 +309,42 @@ func (t *Tile) insertFirstEmpty(other *Tile) {
 }
 
 func (t *Tile) reallocBounds(b Area) {
-	nt := uint32(1)
-	if t == nil {
-		return
+
+	if t.Right != nil {
+		var box Area
+		if t.Right.Mode == TileVert {
+			box.Height = b.Height / 2
+			box.Width = b.Width
+			box.X = b.X
+			box.Y = b.Y + box.Height
+			b.Height = box.Height
+		} else {
+			box.Height = b.Height
+			box.Width = b.Width / 2
+			box.X = b.X + box.Width
+			box.Y = b.Y
+			b.Width = box.Width
+		}
+		t.Right.reallocBounds(box)
 	}
 	if t.Left != nil {
-		nt++
-	}
-	if t.Right != nil {
-		nt++
-	}
-	if t.Mode == TileVert {
 		var box Area
-		box.Height = b.Height / nt
-		box.Width = b.Width
-		box.X = b.X
-		box.Y = b.Y
-		if t.Right != nil {
-			t.Right.reallocBounds(box)
-			box.Y += box.Height
+		if t.Left.Mode == TileVert {
+			box.Height = b.Height / 2
+			box.Width = b.Width
+			box.X = b.X
+			box.Y = b.Y + box.Height
+			b.Height = box.Height
+		} else {
+			box.Height = b.Height
+			box.Width = b.Width / 2
+			box.X = b.X + box.Width
+			box.Y = b.Y
+			b.Width = box.Width
 		}
-		t.Bounds = box
-		box.Y += box.Height
-		if t.Left != nil {
-			t.Left.reallocBounds(box)
-		}
+		t.Left.reallocBounds(box)
 	}
-	if t.Mode == TileHori {
-		var box Area
-		box.Height = b.Height
-		box.Width = b.Width / nt
-		box.X = b.X
-		box.Y = b.Y
-		if t.Right != nil {
-			t.Right.reallocBounds(box)
-			box.X += box.Width
-		}
-		t.Bounds = box
-		box.X += box.Width
-		if t.Left != nil {
-			t.Left.reallocBounds(box)
-		}
-	}
-
+	t.Bounds = b
 }
 
 //Bounds return maximum area
@@ -348,17 +379,19 @@ func (t *Tile) Config(xConn *xgb.Conn, padX uint32, padY uint32) {
 	if t == nil {
 		return
 	}
-	err := xproto.ConfigureWindowChecked(xConn, t.Wind,
-		xproto.ConfigWindowX|
-			xproto.ConfigWindowY|
-			xproto.ConfigWindowWidth|
-			xproto.ConfigWindowHeight,
-		[]uint32{t.Bounds.X + padX,
-			t.Bounds.Y + padY,
-			t.Bounds.Width - padX*2,
-			t.Bounds.Height - padY*2}).Check()
-	if err != nil {
-		fmt.Println(err)
+	if t.Wind != 0 {
+		err := xproto.ConfigureWindowChecked(xConn, t.Wind,
+			xproto.ConfigWindowX|
+				xproto.ConfigWindowY|
+				xproto.ConfigWindowWidth|
+				xproto.ConfigWindowHeight,
+			[]uint32{t.Bounds.X + padX,
+				t.Bounds.Y + padY,
+				t.Bounds.Width - padX*2,
+				t.Bounds.Height - padY*2}).Check()
+		if err != nil {
+			fmt.Println(err)
+		}
 	}
 	if t.Right != nil {
 		t.Right.Config(xConn, padX, padY)
