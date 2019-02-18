@@ -1,4 +1,7 @@
 # NiuWM
+
+[![Go Report Card](https://goreportcard.com/badge/github.com/jmakip/niuwm)](https://goreportcard.com/report/github.com/jmakip/niuwm)
+
 Niu Window Manager
 
 
