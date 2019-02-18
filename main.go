@@ -204,7 +204,8 @@ func startApp(name string, params string) {
 		log.Fatal(err)
 	}
 	fmt.Printf("Started %s waiting to finish\n", name)
-	err = cmd.Wait()
+	_ = cmd.Wait()
+
 }
 
 //getWMatoms pushes 3 atom requests to x server and then waits for them
