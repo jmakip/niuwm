@@ -524,5 +524,4 @@ func main() {
 		}
 
 	}
-	fmt.Println("everything ok exiting")
 }
