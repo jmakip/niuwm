@@ -19,18 +19,21 @@ var atom_wm_protocols xproto.Atom
 var atom_wm_deletewindow xproto.Atom
 var atom_wm_take_focus xproto.Atom
 */
-var event_timestamp xproto.Timestamp
+var eventTimestamp xproto.Timestamp
 var windows []xproto.Window
-var wm_atoms map[string]xproto.Atom
-var cfg niu_cfg
+var wmAtoms map[string]xproto.Atom
+var cfg NiuCfg
 
 var curTileMode tiling.TileMode
 var curWs tiling.Workspace
 var currFocus xproto.Window
 
+//RemoveWindow deletes window from Workspace
 func RemoveWindow(wind xproto.Window) {
 	curWs.Delete(wind)
 }
+
+//AddWindow inserts new window as child of active window
 func AddWindow(window xproto.Window) {
 	//focus := focused_window()
 	if curWs.Root.HasBranch() == false {
@@ -39,6 +42,7 @@ func AddWindow(window xproto.Window) {
 	curWs.Insert(curTileMode, currFocus, window)
 }
 
+//getActiveWindow find current active window
 func getActiveWindow() xproto.Window {
 	atomname := "_NET_ACTIVE_WINDOW"
 
@@ -72,9 +76,8 @@ func getActiveWindow() xproto.Window {
 	return 0
 }
 
-//try to find window that is active
-//TODO there must be some better way to do this
-func focused_window() xproto.Window {
+//focusedWindow get current window that is active
+func focusedWindow() xproto.Window {
 	xproto.GrabServer(xconn)
 	defer xproto.UngrabServer(xconn)
 	reply, err := xproto.GetInputFocus(xconn).Reply()
@@ -102,30 +105,32 @@ func focused_window() xproto.Window {
 
 	return wind
 }
-func give_focus(w xproto.Window) {
+
+//giveFocus give focus to window
+func giveFocus(w xproto.Window) {
 	if w == 0 {
 		return
 	}
 	err := xproto.SetInputFocus(xconn, xproto.InputFocusPointerRoot,
-		w, event_timestamp).Check()
+		w, eventTimestamp).Check()
 	if err != nil {
 		fmt.Printf("could not set input focus\n")
 	}
 
 }
 
-//now just move inside windows slice,
-func move_focus_left() {
-	active := focused_window()
+//moveFocusLeft move inside tree
+func moveFocusLeft() {
+	active := focusedWindow()
 
 	if active == 0 {
 		//no focused_window just give it to first
 		if curWs.Root.Right != nil {
-			give_focus(curWs.Root.Right.Wind)
+			giveFocus(curWs.Root.Right.Wind)
 			return
 		}
 		if curWs.Root.Left != nil {
-			give_focus(curWs.Root.Left.Wind)
+			giveFocus(curWs.Root.Left.Wind)
 			return
 		}
 		return
@@ -133,31 +138,31 @@ func move_focus_left() {
 	tile, _ := curWs.Root.FindWithParent(active)
 	if tile != nil {
 		if tile.Left != nil {
-			give_focus(tile.Left.Wind)
+			giveFocus(tile.Left.Wind)
 			currFocus = active
 			return
 		}
 	}
 	if curWs.Root.Right != nil {
-		give_focus(curWs.Root.Right.Wind)
+		giveFocus(curWs.Root.Right.Wind)
 		currFocus = active
 		return
 	}
 
 }
 
-//now just move inside windows slice, later add Containers
-func move_focus_right() {
-	active := focused_window()
+//moveFocusRight move right inside containers
+func moveFocusRight() {
+	active := focusedWindow()
 
 	if active == 0 {
 		//no focused_window just give it to first
 		if curWs.Root.Right != nil {
-			give_focus(curWs.Root.Right.Wind)
+			giveFocus(curWs.Root.Right.Wind)
 			return
 		}
 		if curWs.Root.Left != nil {
-			give_focus(curWs.Root.Left.Wind)
+			giveFocus(curWs.Root.Left.Wind)
 			return
 		}
 		return
@@ -165,19 +170,20 @@ func move_focus_right() {
 	tile, _ := curWs.Root.FindWithParent(active)
 	if tile != nil {
 		if tile.Right != nil {
-			give_focus(tile.Right.Wind)
+			giveFocus(tile.Right.Wind)
 			currFocus = active
 			return
 		}
 	}
 	if curWs.Root.Right != nil {
-		give_focus(curWs.Root.Right.Wind)
+		giveFocus(curWs.Root.Right.Wind)
 		currFocus = active
 		return
 	}
 }
 
-func find_window(w xproto.Window) (ret bool) {
+//findWindow search window
+func findWindow(w xproto.Window) (ret bool) {
 	ret = false
 	for _, window := range windows {
 		if w == window {
@@ -188,9 +194,9 @@ func find_window(w xproto.Window) (ret bool) {
 	return
 }
 
-//Start application with parameters wait for it to finish
-func start_app(name string, params string) {
-	var full string = name + " " + params
+//startApp Start application with parameters wait for it to finish
+func startApp(name string, params string) {
+	full := name + " " + params
 	//TODO read shell env from config
 	cmd := exec.Command("/bin/bash", "-c", full)
 	err := cmd.Start()
@@ -201,35 +207,36 @@ func start_app(name string, params string) {
 	err = cmd.Wait()
 }
 
-//pushes 3 atom requests to x server and then waits for them
-func get_wm_atoms() {
-	wm_atoms = make(map[string]xproto.Atom)
-	atom_names := [3]string{"WM_PROTOCOLS", "WM_TAKE_FOCUS", "WM_DELETE_WINDOW"}
+//getWMatoms pushes 3 atom requests to x server and then waits for them
+func getWMatoms() {
+	wmAtoms = make(map[string]xproto.Atom)
+	atomNames := [3]string{"WM_PROTOCOLS", "WM_TAKE_FOCUS", "WM_DELETE_WINDOW"}
 	var cookies [3]xproto.InternAtomCookie
-	for i := 0; i < len(atom_names); i++ {
-		cookies[i] = xproto.InternAtom(xconn, false, uint16(len(atom_names[i])),
-			atom_names[i])
+	for i := 0; i < len(atomNames); i++ {
+		cookies[i] = xproto.InternAtom(xconn, false, uint16(len(atomNames[i])),
+			atomNames[i])
 	}
 
-	for i := 0; i < len(atom_names); i++ {
+	for i := 0; i < len(atomNames); i++ {
 		reply, err := cookies[i].Reply()
 		if err != nil {
 			log.Fatal("err")
 			panic(err)
 		}
 		if reply == nil {
-			wm_atoms[atom_names[i]] = 0
+			wmAtoms[atomNames[i]] = 0
 			continue
 		}
-		wm_atoms[atom_names[i]] = reply.Atom
+		wmAtoms[atomNames[i]] = reply.Atom
 		fmt.Printf("success getting wm atoms")
 	}
 
 }
 
-func handle_button_press(e xproto.ButtonPressEvent) {
+//handleButtonPress launch shortcut binds
+func handleButtonPress(e xproto.ButtonPressEvent) {
 	if e.State&xproto.ModMaskControl != 0 {
-		go start_app("termite", "")
+		go startApp("termite", "")
 	}
 
 	button := e.Detail
@@ -238,11 +245,13 @@ func handle_button_press(e xproto.ButtonPressEvent) {
 		panic("closing")
 	}
 	if button == 36 {
-		go start_app("termite", "")
+		go startApp("termite", "")
 	}
 
 }
-func handle_key_press(e xproto.KeyPressEvent) {
+
+//handleKeyPress launch shortcuts
+func handleKeyPress(e xproto.KeyPressEvent) {
 	keycode := byte(e.Detail)
 	mod := e.State /*
 		if e.State&xproto.ModMaskControl != 0 {
@@ -254,10 +263,10 @@ func handle_key_press(e xproto.KeyPressEvent) {
 				panic("closing")
 			}
 		}*/
-	for _, cmd_ := range cfg.Keybinds.Cmd {
-		if mod == cmd_.Mod && keycode == cmd_.Keycode {
-			currFocus = focused_window()
-			go start_app(cmd_.Cmd, cmd_.Cmdparams)
+	for _, cmd := range cfg.Keybinds.Cmd {
+		if mod == cmd.Mod && keycode == cmd.Keycode {
+			currFocus = focusedWindow()
+			go startApp(cmd.Cmd, cmd.Cmdparams)
 			return
 		}
 	}
@@ -267,10 +276,10 @@ func handle_key_press(e xproto.KeyPressEvent) {
 				panic("closing")
 			}
 			if actions.Action == "focus_left" {
-				move_focus_left()
+				moveFocusLeft()
 			}
 			if actions.Action == "focus_right" {
-				move_focus_right()
+				moveFocusRight()
 			}
 			if actions.Action == "tiling_mode_toggle" {
 				if curTileMode == tiling.TileHori {
@@ -285,8 +294,9 @@ func handle_key_press(e xproto.KeyPressEvent) {
 
 }
 
-func map_window(window xproto.Window) {
-	if find_window(window) != false {
+//mapWindow show window on screen
+func mapWindow(window xproto.Window) {
+	if findWindow(window) != false {
 		return
 	}
 	// Ensure that we can manage this window.
@@ -316,11 +326,14 @@ func map_window(window xproto.Window) {
 		AddWindow(window)
 	}
 }
-func unmap_window(window xproto.Window) {
+
+//unmapWindow remove window
+func unmapWindow(window xproto.Window) {
 	RemoveWindow(window)
 }
 
-func query_windows() {
+//queryWindows search windows under root window and map them
+func queryWindows() {
 	//perhaps remove all from windows first
 	windows = nil
 	tree, err := xproto.QueryTree(xconn, screen.Root).Reply()
@@ -330,36 +343,38 @@ func query_windows() {
 	if tree != nil {
 		for i, wind := range tree.Children {
 			if i > 0 {
-				map_window(wind)
+				mapWindow(wind)
 			}
 		}
 	}
 
 }
-func tile_windows() {
-	var pad uint32 = 10
-	var screen_x uint32 = uint32(screen.WidthInPixels)
-	var screen_y uint32 = uint32(screen.HeightInPixels)
-	var nro_windows uint32 = uint32(len(windows))
-	var tile_size_x uint32
-	if nro_windows == 0 {
+
+//tileWindows organize windows into Workspace
+func tileWindows() {
+	var pad = uint32(10)
+	var screenX = uint32(screen.WidthInPixels)
+	var screenY = uint32(screen.HeightInPixels)
+	var nroWindows = uint32(len(windows))
+	var tileSizeX uint32
+	if nroWindows == 0 {
 		return
 	}
-	if nro_windows == 1 {
-		tile_size_x = screen_x - pad
+	if nroWindows == 1 {
+		tileSizeX = screenX - pad
 	} else {
-		tile_size_x = (screen_x / (nro_windows)) - pad
+		tileSizeX = (screenX / (nroWindows)) - pad
 	}
 	for index, wind := range windows {
-		var idx uint32 = uint32(index)
+		var idx = uint32(index)
 
-		x := pad + (pad+tile_size_x+pad)*uint32(idx)
+		x := pad + (pad+tileSizeX+pad)*uint32(idx)
 		err := xproto.ConfigureWindowChecked(xconn, wind,
 			xproto.ConfigWindowX|
 				xproto.ConfigWindowY|
 				xproto.ConfigWindowWidth|
 				xproto.ConfigWindowHeight,
-			[]uint32{x, 0, tile_size_x, screen_y}).Check()
+			[]uint32{x, 0, tileSizeX, screenY}).Check()
 		if err != nil {
 			fmt.Println(err)
 		}
@@ -367,15 +382,16 @@ func tile_windows() {
 	fmt.Printf("NRO WINDOWS %d \n", len(windows))
 }
 
-func grab_key_events() {
-	for _, cmd_ := range cfg.Keybinds.Cmd {
-		xproto.GrabKey(xconn, true, screen.Root, cmd_.Mod,
-			xproto.Keycode(cmd_.Keycode),
+//grabKeyEvents notify XCB that we want listen these keyevents
+func grabKeyEvents() {
+	for _, cmd := range cfg.Keybinds.Cmd {
+		xproto.GrabKey(xconn, true, screen.Root, cmd.Mod,
+			xproto.Keycode(cmd.Keycode),
 			xproto.GrabModeAsync, xproto.GrabModeAsync)
 	}
-	for _, action_ := range cfg.Keybinds.Actions {
-		xproto.GrabKey(xconn, true, screen.Root, action_.Mod,
-			xproto.Keycode(action_.Keycode),
+	for _, action := range cfg.Keybinds.Actions {
+		xproto.GrabKey(xconn, true, screen.Root, action.Mod,
+			xproto.Keycode(action.Keycode),
 			xproto.GrabModeAsync, xproto.GrabModeAsync)
 	}
 	/*
@@ -388,7 +404,7 @@ func grab_key_events() {
 
 func main() {
 	curTileMode = tiling.TileHori
-	cfg = init_config()
+	cfg = InitConfig()
 	fmt.Println("############")
 	fmt.Println(cfg)
 	fmt.Println("############")
@@ -411,7 +427,7 @@ func main() {
 
 	fmt.Printf("screen height Width %d %d", screen.HeightInPixels,
 		screen.WidthInPixels)
-	get_wm_atoms()
+	getWMatoms()
 	err = xproto.ChangeWindowAttributesChecked(
 		xconn,
 		screen.Root,
@@ -434,11 +450,11 @@ func main() {
 		}
 	}
 
-	grab_key_events()
+	grabKeyEvents()
 	//testing launching app
-	go start_app("termite", "")
+	go startApp("termite", "")
 	// get existing windows and place them into our window structure
-	query_windows()
+	queryWindows()
 	//tile_windows()
 	curWs.Config(xconn, 10, 10)
 	for {
@@ -462,14 +478,14 @@ func main() {
 		}
 		switch e := ev.(type) {
 		case xproto.KeyPressEvent:
-			handle_key_press(e)
+			handleKeyPress(e)
 		case xproto.ButtonPressEvent:
-			handle_button_press(e)
+			handleButtonPress(e)
 		case xproto.MapRequestEvent:
 			fmt.Println("MapRequestEvent")
 			if winattrib, err := xproto.GetWindowAttributes(xconn, e.Window).Reply(); err != nil || !winattrib.OverrideRedirect {
 				xproto.MapWindowChecked(xconn, e.Window)
-				map_window(e.Window)
+				mapWindow(e.Window)
 				//tile_windows()
 				curWs.Config(xconn, 10, 10)
 			}
@@ -494,14 +510,14 @@ func main() {
 			//query_windows()
 			//tile_windows()
 		case xproto.DestroyNotifyEvent:
-			unmap_window(e.Window)
+			unmapWindow(e.Window)
 			//query_windows()
 			//tile_windows()
 			curWs.Config(xconn, 10, 10)
 		case xproto.EnterNotifyEvent:
 			if e.Event != screen.Root {
 				currFocus = e.Event
-				give_focus(e.Event)
+				giveFocus(e.Event)
 			}
 
 		default:

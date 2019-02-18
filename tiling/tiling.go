@@ -56,6 +56,8 @@ func (ws *Workspace) Insert(m TileMode, focus xproto.Window, w xproto.Window) {
 	ws.Root.Right.Insert(m, focus, w)
 	ws.Root.Right.reallocBounds(ws.Bounds)
 }
+
+//Delete Remove window and reallocate bounding Area
 func (ws *Workspace) Delete(w xproto.Window) {
 	if ws == nil {
 		return
@@ -69,6 +71,9 @@ func (ws *Workspace) Delete(w xproto.Window) {
 	}
 }
 
+//Config configures all x11 windows bound on given workspace, adds padding
+//padX side padding
+//padY up/down padding
 func (ws *Workspace) Config(xConn *xgb.Conn, padX uint32, padY uint32) {
 	if ws == nil {
 		return
@@ -79,7 +84,7 @@ func (ws *Workspace) Config(xConn *xgb.Conn, padX uint32, padY uint32) {
 	ws.Root.Config(xConn, padX, padY)
 }
 
-//returns status
+//HasBranch returns true if there is child branches
 func (t *Tile) HasBranch() bool {
 	if t.Right == nil && t.Left == nil {
 		return false
@@ -87,6 +92,8 @@ func (t *Tile) HasBranch() bool {
 	return true
 
 }
+
+//insertNoFocus adds given window into current position in tree
 func (t *Tile) insertNoFocus(m TileMode, w xproto.Window) {
 
 	if w == 0 {
@@ -347,7 +354,7 @@ func (t *Tile) reallocBounds(b Area) {
 	t.Bounds = b
 }
 
-//Bounds return maximum area
+//Boundaries return maximum area
 func (t *Tile) Boundaries(bounds *Area) {
 	if t == nil {
 		return

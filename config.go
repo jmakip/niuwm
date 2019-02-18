@@ -8,69 +8,78 @@ import (
 )
 
 //Hard coded config paths
-const keyconfig_path string = "/.config/niuwm/keybinds.json"
+const keyConfigPath string = "/.config/niuwm/keybinds.json"
 
-type cmd_keybind struct {
+//CmdKeybind keybinds for executables
+type CmdKeybind struct {
 	Cmd       string
 	Cmdparams string
 	Mod       uint16
 	Keycode   byte
 }
-type logout_keybind struct {
+
+//LogoutKeybind keycode for exiting WM
+type LogoutKeybind struct {
 	Mod     uint16
 	Keycode byte
 }
-type action_keybind struct {
+
+//ActionKeybind WM actions keybinds
+type ActionKeybind struct {
 	Action  string
 	Mod     uint16
 	Keycode byte
 }
 
-type cmd_keys struct {
-	Actions []action_keybind
-	Cmd     []cmd_keybind
+//CmdKeys all keybinds
+type CmdKeys struct {
+	Actions []ActionKeybind
+	Cmd     []CmdKeybind
 }
 
-type niu_cfg struct {
-	Keybinds cmd_keys
+//NiuCfg settings load from config files
+type NiuCfg struct {
+	Keybinds CmdKeys
 	//mouse bindings
 	//workspaces etc...
 }
 
-func init_config() (cfg niu_cfg) {
+//InitConfig initialize settings by loading from file
+func InitConfig() (cfg NiuCfg) {
 	var err error
-	cfg.Keybinds, err = load_keybindings()
+	cfg.Keybinds, err = LoadKeyBindings()
 	if err != nil {
 		//trying to generate some defaults
-		cfg.Keybinds = gen_keybinds()
+		cfg.Keybinds = GenKeyBinds()
 	}
 	return cfg
 }
 
-func load_keybindings() (ret cmd_keys, err error) {
-	key_file, err := os.Open(os.Getenv("HOME") + keyconfig_path)
+//LoadKeyBindings load keybindings from JSON config files
+func LoadKeyBindings() (ret CmdKeys, err error) {
+	keyFile, err := os.Open(os.Getenv("HOME") + keyConfigPath)
 	if err != nil {
-		fmt.Printf("Could not open config file: %s \n", keyconfig_path)
+		fmt.Printf("Could not open config file: %s \n", keyConfigPath)
 		return
 	}
-	defer key_file.Close()
-	ascii, err := ioutil.ReadAll(key_file)
+	defer keyFile.Close()
+	ascii, err := ioutil.ReadAll(keyFile)
 	if err != nil {
-		fmt.Printf("Cant readl config file: %s \n", keyconfig_path)
+		fmt.Printf("Cant readl config file: %s \n", keyConfigPath)
 	}
 	err = json.Unmarshal(ascii, &ret)
 	if err != nil {
 		//file exists but cant translate it perhaps version mismatch
-		fmt.Printf("Cant Unmarshal config file: %s \n", keyconfig_path)
+		fmt.Printf("Cant Unmarshal config file: %s \n", keyConfigPath)
 	}
 	return ret, err
 }
 
-//inconfiniance function for generating json
-func gen_keybinds() (keys cmd_keys) {
-	keys = cmd_keys{
-		Actions: []action_keybind{
-			action_keybind{
+//GenKeyBinds generate default config for keybinds, use when file does not exists.
+func GenKeyBinds() (keys CmdKeys) {
+	keys = CmdKeys{
+		Actions: []ActionKeybind{
+			ActionKeybind{
 				Action:  "logout",
 				Mod:     4,
 				Keycode: 9,
@@ -81,9 +90,9 @@ func gen_keybinds() (keys cmd_keys) {
 				Keycode: 69,
 			},
 		},
-		Cmd: []cmd_keybind{
-			cmd_keybind{Cmd: "termite", Cmdparams: "", Mod: 4, Keycode: 36},
-			cmd_keybind{Cmd: "rofi", Cmdparams: "-show drun", Mod: 4, Keycode: 40},
+		Cmd: []CmdKeybind{
+			CmdKeybind{Cmd: "termite", Cmdparams: "", Mod: 4, Keycode: 36},
+			CmdKeybind{Cmd: "rofi", Cmdparams: "-show drun", Mod: 4, Keycode: 40},
 		},
 	}
 
