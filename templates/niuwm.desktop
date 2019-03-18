@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=NiuWM
+Comment=Tiling window manager
+Exec=niuwm
+TryExec=niuwm
+Type=Application
+X-LightDM-DesktopName=NiuWM
+DesktopNames=NiuWM
+Keywords=tiling;wm;windowmanager;window;manager;

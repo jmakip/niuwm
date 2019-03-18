@@ -14,7 +14,13 @@
 				"action":  "focus_right",
 				"mod":     4,
 				"keycode": 46
+      },    
+      {
+				"action":  "tiling_mode_toggle",
+				"mod":     4,
+				"keycode": 28
       }
+
     ],
 		"cmd" : [
 		{ 
@@ -26,6 +32,11 @@
       "cmd": "rofi", 
       "cmdparams": "-show drun", 
       "mod": 4, 
-      "keycode": 40}
+      "keycode": 40},
+      {
+      "cmd": "xclock", 
+      "cmdparams": "", 
+      "mod": 4, 
+      "keycode": 54}
     ]
 	}
