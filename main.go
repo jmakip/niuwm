@@ -3,8 +3,9 @@ package main
 import (
 	"fmt"
 	"log"
-	"niuwm/tiling"
 	"os/exec"
+
+	"github.com/jmakip/niuwm/tiling"
 
 	"github.com/BurntSushi/xgb"
 	"github.com/BurntSushi/xgb/xproto"
